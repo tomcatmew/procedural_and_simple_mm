@@ -17,6 +17,7 @@
 #include "delfem2/glfw/util.h"
 #include "delfem2/opengl/old/funcs.h"
 #include "delfem2/opengl/old/rigv3.h"
+#include "delfem2/rig_bvh.h"
 
 namespace dfm2 = delfem2;
 
@@ -60,7 +61,29 @@ int main(int argc, char* argv[]) {
         "/../data/LocomotionFlat02_000_mirror.bvh",
         "/../data/LocomotionFlat01_000_mirror.bvh",
     };
+    std::string ipath = "/../data/LocomotionFlat01_000.bvh";
+    //for (auto& ipath : vec_path_bvh) {
+        std::string path_bvh = std::string(PATH_SOURCE_DIR) + ipath;
+        // read bvh 
+        std::vector<dfm2::CRigBone> aBone;
+        std::vector<dfm2::CChannel_BioVisionHierarchy> aChannelRotTransBone;
+        size_t nframe = 0;
+        double frame_time;
+        std::string header_bvh;
+        std::vector<double> vec_bvh_time_series_data;
+        Read_BioVisionHierarchy(
+            aBone,
+            aChannelRotTransBone,
+            nframe,
+            frame_time,
+            vec_bvh_time_series_data,
+            header_bvh,
+            path_bvh);
+        dfm2::UpdateBoneRotTrans(aBone);
+        std::cout << "nFame: " << nframe << std::endl;
+        assert(aBone.size() == 38 && aChannelRotTransBone.size() == 96);
 
+    //}
 
 
     class MytempViewer : public delfem2::glfw::CViewer3 {
@@ -107,7 +130,7 @@ int main(int argc, char* argv[]) {
 
     viewer_source.width = 1920;
     viewer_source.height = 1080;
-    viewer_source.window_title = "Data-Driven Controller";
+    viewer_source.window_title = "Motion Matching";
     viewer_source.view_rotation = std::make_unique<delfem2::ModelView_Ytop>();
 
     delfem2::glfw::InitGLOld();
@@ -195,10 +218,12 @@ int main(int argc, char* argv[]) {
 
     float velocity_mag = 10.0f;
     dfm2::CVec2d face_dirZ(1.0f, 0.f);
-
+    static int iframe = 0;
+    const int nch = aChannelRotTransBone.size();
     while (!glfwWindowShouldClose(viewer_source.window))
     {
         glfwMakeContextCurrent(viewer_source.window);
+
 
 
         //std::cout << manual_phase << std::endl;
@@ -232,6 +257,15 @@ int main(int argc, char* argv[]) {
         bool buttonY = false;
         bool buttonA = false;
         bool buttonB = false;
+
+        //  BVH test
+        delfem2::SetPose_BioVisionHierarchy(aBone, aChannelRotTransBone, vec_bvh_time_series_data.data() + iframe * nch);
+        dfm2::opengl::DrawBone_Octahedron(
+            aBone,
+            5, -1,
+            0.1, 1.0);
+        iframe = (iframe + 1) % nframe;
+        // 
 
 
         // input bind with controller ++++++++++++
@@ -487,12 +521,20 @@ int main(int argc, char* argv[]) {
 
             ImGui::Begin("Control Panel");                       
             ImGui::Checkbox("XBOX Gamepad", &check_controller);
+            ImGui::Text("Buttons"); ImGui::SameLine();
             ImGui::Checkbox("X", &buttonX); ImGui::SameLine();
             ImGui::Checkbox("Y", &buttonY); ImGui::SameLine();
             ImGui::Checkbox("A", &buttonA); ImGui::SameLine();
             ImGui::Checkbox("B", &buttonB); ImGui::SameLine();
             ImGui::Separator();
-
+            ImGui::Text("Trajectory smoothness");
+            ImGui::SliderFloat("Traj Half-life", &halflife, 0.0f, 0.9f);
+            ImGui::Separator();
+            ImGui::Text("Current Direction");
+            ImGui::Text("dir x: %f ; dir y: %f", goal_x, goal_y);
+            ImGui::Text("Current Speed");               // Display some text (you can use a format strings too)
+            ImGui::Text("dir x: %f ; dir y: %f", speed_x, speed_y);
+            ImGui::Separator();
 
             ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
             ImGui::End();
