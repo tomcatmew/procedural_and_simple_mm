@@ -1,32 +1,11 @@
-# Prerequisites
-*.d
+.idea
+cmake-build-debug
+3rd_party/libeigen
+3rd_party/libglfw
+3rd_party/libtorch
+3rd_party/imgui
 
-# Compiled Object files
-*.slo
-*.lo
-*.o
-*.obj
+cmake-build-release
+cmake-build-debug
 
-# Precompiled Headers
-*.gch
-*.pch
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
-*.exe
-*.out
-*.app
+*/build/
