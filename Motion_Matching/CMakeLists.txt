@@ -13,7 +13,7 @@ ENDIF ()
 
 ####################################
 
-project(Chen_Motion_Matching)
+project(Motion_Matching)
 
 add_definitions(-DPATH_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 
@@ -29,15 +29,8 @@ add_definitions(-DDFM2_HEADER_ONLY=ON)
 set(DELFEM2_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../3rd_party/delfem2/include")
 
 # imgui_glfw
-set(IMGUIGLFW_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../3rd_party/imgui")
-# file(SOURCES "${IMGUIGLFW_INCLUDE_DIR}/*.cpp" "${IMGUIGLFW_INCLUDE_DIR}/*.h")
-file(GLOB IMGUI_SOURCES
-     "${CMAKE_CURRENT_SOURCE_DIR}/../3rd_party/imgui/*.h"
-     "${CMAKE_CURRENT_SOURCE_DIR}/../3rd_party/imgui/*.cpp"
-     "${CMAKE_CURRENT_SOURCE_DIR}/../3rd_party/imgui/backends/*.cpp"
-     "${CMAKE_CURRENT_SOURCE_DIR}/../3rd_party/imgui/backends/*.cpp"
-)
-add_library("ImGui" STATIC ${IMGUI_SOURCES})
+add_definitions(-DIMGUI_IMPL_OPENGL_LOADER_GLAD)
+set(IMGUI_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../3rd_party/imgui")
 
 ####################################################
 
@@ -45,10 +38,20 @@ include_directories(
     ${OPENGL_INCLUDE_DIR}
     ${GLFW_INCLUDE_DIR}
     ${DELFEM2_INCLUDE_DIR}
-    ${IMGUIGLFW_INCLUDE_DIR}
+    ${IMGUI_DIR}
+    ${IMGUI_DIR}/backends
 )
 
 add_executable(${PROJECT_NAME}
+    ${IMGUI_DIR}/imgui.h
+    ${IMGUI_DIR}/imgui.cpp
+    ${IMGUI_DIR}/imgui_draw.cpp
+    ${IMGUI_DIR}/imgui_widgets.cpp
+    ${IMGUI_DIR}/imgui_tables.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_opengl2.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_opengl2.h
+    ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_glfw.h
     main.cpp
     )
 
@@ -56,5 +59,4 @@ target_link_libraries(${PROJECT_NAME}
     ${DFM2_LIBRARY}
     ${OPENGL_LIBRARY}
     ${GLFW_LIBRARIES}
-    ImGui
     )

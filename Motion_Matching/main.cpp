@@ -7,11 +7,11 @@
 #include <GLFW/glfw3.h>
 
 #include "imgui.h"
-#include "backends/imgui_impl_glfw.h"
-#include "backends/imgui_impl_opengl2.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_opengl2.h"
 
-#include "../traj.h"
-#include "../draw.h"
+#include "traj.h"
+#include "draw.h"
 #include "delfem2/rig_geo3.h"
 #include "delfem2/glfw/viewer3.h"
 #include "delfem2/glfw/util.h"
@@ -203,10 +203,6 @@ int main(int argc, char* argv[]) {
 
         //std::cout << manual_phase << std::endl;
         bool facing_control_mode = false;
-
-
-        double tempt_divs = sqrt(p.velo[0] * p.velo[0] + p.velo[1] * p.velo[1]);
-        dfm2::CVec2d normal_dirZ = dfm2::CVec2d({ p.velo[0] / tempt_divs,p.velo[1] / tempt_divs });
 
 
         Floor floor{ 100, +0.1 };
@@ -489,28 +485,14 @@ int main(int argc, char* argv[]) {
             ImGui::BulletText(" X                              - Stop Character");
             ImGui::End();
 
-            ImGui::Begin("Control Panel");                          // Create a window called "Hello, world!" and append into it.
+            ImGui::Begin("Control Panel");                       
             ImGui::Checkbox("XBOX Gamepad", &check_controller);
             ImGui::Checkbox("X", &buttonX); ImGui::SameLine();
             ImGui::Checkbox("Y", &buttonY); ImGui::SameLine();
             ImGui::Checkbox("A", &buttonA); ImGui::SameLine();
             ImGui::Checkbox("B", &buttonB); ImGui::SameLine();
             ImGui::Separator();
-            ImGui::Text("Phase Step");               // Display some text (you can use a format strings too)
-            ImGui::BulletText("Recommendation - walk: 0.006 ; run: 0.01");
-            ImGui::Separator();
-            ImGui::SliderFloat("Phase Float", &f, 0.00f, 0.015f);            // Edit 1 float using a slider from 0.0f to 1.0f
-            //ImGui::ColorEdit3("clear color", (float*)&clear_color); // Edit 3 floats representing a color
-            ImGui::Text("Trajectory smoothness");
-            ImGui::SliderFloat("Traj Half-life", &halflife, 0.0f, 0.9f);
-            ImGui::Separator();
-            ImGui::Text("Current Direction");
-            ImGui::Text("dir x: %f ; dir y: %f", goal_x, goal_y);
-            ImGui::Text("Current Speed");               // Display some text (you can use a format strings too)
-            ImGui::Text("dir x: %f ; dir y: %f", speed_x, speed_y);
-            ImGui::Separator();
-            //ImGui::SameLine();
-            //ImGui::Text("counter = %d", counter);
+
 
             ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
             ImGui::End();
