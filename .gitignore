@@ -3,7 +3,6 @@ cmake-build-debug
 3rd_party/libeigen
 3rd_party/libglfw
 3rd_party/libtorch
-3rd_party/imgui
 
 cmake-build-release
 cmake-build-debug
