@@ -21,6 +21,101 @@
 
 namespace dfm2 = delfem2;
 
+int Pose_Match_Best(std::vector<double>& pose_match_date, std::vector<double>& desired_future_traj, int database_size, int num_sample)
+{
+    double cost = 9999999.0;
+    int target_frame = 0;
+    int total_frame = database_size / num_sample;
+    //std::cout << "total" << total_frame << std::endl;
+    for (unsigned int iframe = 0; iframe < total_frame; iframe++)
+    {
+        double tempt_cost = 0.0f;
+        for (unsigned int isample = 0; isample < 10; isample++)
+        {
+            tempt_cost += abs(pose_match_date[iframe * num_sample + isample] - desired_future_traj[isample]);
+        }
+        if (tempt_cost < cost)
+        {
+            target_frame = iframe;
+            cost = tempt_cost;
+        }
+    }
+    return target_frame;
+}
+
+
+void Gene_Pose_Match_Dataset(std::vector<double>& pose_match_date,const std::vector<double>* timeseries_date, int channelSize, int sample_frame)
+{
+    int size_date = timeseries_date->size();
+    int size_timeseries = size_date / channelSize;
+    for (unsigned int ich = 0; ich < size_timeseries; ich += 1)
+    {
+        for (unsigned int j = 1; j < 6; j += 1)
+        {
+            //const double val = (*timeseries_date)[channelSize * ich + j * sample_frame + 0];
+            double x_root = (*timeseries_date)[channelSize * ich + 0];
+            double z_root = (*timeseries_date)[channelSize * ich + 2];
+            int ix = channelSize * ich + j * sample_frame * channelSize + 0;
+            int iz = channelSize * ich + j * sample_frame * channelSize + 2;
+            if (ix >= size_date)
+            {
+                pose_match_date.push_back(0.0f);
+                pose_match_date.push_back(0.0f);
+            }
+            else 
+            {
+                double x_pos = (*timeseries_date)[ix] - x_root;
+                double y_pos = (*timeseries_date)[iz] - z_root;
+                pose_match_date.push_back(x_pos);
+                pose_match_date.push_back(y_pos);
+            }
+        }
+    }
+}
+
+void SetPose_BioVisionHierarchy_Rotate(
+    std::vector<dfm2::CRigBone>& bones,
+    const std::vector<dfm2::CChannel_BioVisionHierarchy>& channels,
+    const double* values,
+    dfm2::CVec2d& traj) {
+    for (auto& bone : bones) {
+        bone.quatRelativeRot[0] = 0.0;
+        bone.quatRelativeRot[1] = 0.0;
+        bone.quatRelativeRot[2] = 0.0;
+        bone.quatRelativeRot[3] = 1.0;
+    }
+    const size_t nch = channels.size();
+    int traj_index = 0;
+    for (unsigned int ich = 0; ich < nch; ++ich) {
+        const int ibone = channels[ich].ibone;
+        const int iaxis = channels[ich].iaxis;
+        const bool isrot = channels[ich].isrot;
+        const double val = values[ich];
+        assert(ibone < (int)bones.size());
+        assert(iaxis >= 0 && iaxis < 3);
+        if (!isrot) {
+            if (traj_index == 0)
+                bones[ibone].transRelative[iaxis] = traj.x;
+            else if (traj_index == 2)
+                bones[ibone].transRelative[iaxis] = traj.y;
+            else
+                bones[ibone].transRelative[iaxis] = val;
+            traj_index += 1;
+        }
+        else {
+            const double ar = val * M_PI / 180.0;
+            double v0[3] = { 0, 0, 0 };
+            v0[iaxis] = 1.0;
+            double dq[4] = { v0[0] * sin(ar * 0.5), v0[1] * sin(ar * 0.5), v0[2] * sin(ar * 0.5), cos(ar * 0.5) };
+            double qtmp[4];
+            dfm2::QuatQuat(qtmp,
+                bones[ibone].quatRelativeRot, dq);
+            dfm2::Copy_Quat(bones[ibone].quatRelativeRot, qtmp);
+        }
+    }
+    UpdateBoneRotTrans(bones);
+}
+
 void joystick_callback(int jid, int event)
 {
     if (event == GLFW_CONNECTED)
@@ -54,7 +149,22 @@ float keyboard_speed_mag = 25.0f;
 
 
 int main(int argc, char* argv[]) {
+    const int sample_frame = 20;
+    
+    //const int boneSize= 38;
+    /*
+    std::vector<dfm2::CRigBone> readBone;
+    readBone.resize(38);
+    std::ifstream inFile;
+    inFile.open(std::string(PATH_SOURCE_DIR) + "/../data/motion_match_data_1.bin", std::ios::in | std::ios::binary);
 
+    inFile.read((char*)&readBone, readBone.size());
+    if (inFile.fail()) { std::cout << "Load Binary Error" << std::endl; return false; }
+    std::cout << "size of current bone" << std::endl;
+    std::cout << readBone.size() << std::endl;
+    */
+   
+    
 
     std::vector<std::string> vec_path_bvh = {
         "/../data/LocomotionFlat03_000_mirror.bvh",
@@ -81,11 +191,36 @@ int main(int argc, char* argv[]) {
             path_bvh);
         dfm2::UpdateBoneRotTrans(aBone);
         std::cout << "nFame: " << nframe << std::endl;
+        std::cout << "aBone: " << aBone.size() << std::endl;
+        std::cout << "aChannels: " << aBone.size() << std::endl;
         assert(aBone.size() == 38 && aChannelRotTransBone.size() == 96);
+        std::cout << "Data: " << vec_bvh_time_series_data.size()/96 << std::endl;
+
+        std::vector<double> posematch_date;
+        Gene_Pose_Match_Dataset(posematch_date, &vec_bvh_time_series_data, aChannelRotTransBone.size(), sample_frame);
+        std::cout << posematch_date.size() << std::endl;
 
     //}
 
-
+        //while (!fin.eof()) {
+        //    double a = -1;
+        //    fin >> a;
+        //    if (!fin) { break; }  // the line break at the end of the file
+        //    vec_phase.push_back(a);
+        //}
+        {
+            std::ofstream outFile;
+            std::string name = "motion_match_data_1";
+            outFile.open(
+                std::string(PATH_SOURCE_DIR) +
+                "/../data/" + name +
+                ".bin", std::ios::binary);
+            outFile.write(
+                reinterpret_cast<const char*>(aBone.data()),
+                sizeof(double) * aBone.size());
+            outFile.close();
+        }
+        //exit(3);
     class MytempViewer : public delfem2::glfw::CViewer3 {
     public:
         MytempViewer() : CViewer3(45) {
@@ -225,8 +360,6 @@ int main(int argc, char* argv[]) {
         glfwMakeContextCurrent(viewer_source.window);
 
 
-
-        //std::cout << manual_phase << std::endl;
         bool facing_control_mode = false;
 
 
@@ -257,15 +390,6 @@ int main(int argc, char* argv[]) {
         bool buttonY = false;
         bool buttonA = false;
         bool buttonB = false;
-
-        //  BVH test
-        delfem2::SetPose_BioVisionHierarchy(aBone, aChannelRotTransBone, vec_bvh_time_series_data.data() + iframe * nch);
-        dfm2::opengl::DrawBone_Octahedron(
-            aBone,
-            5, -1,
-            0.1, 1.0);
-        iframe = (iframe + 1) % nframe;
-        // 
 
 
         // input bind with controller ++++++++++++
@@ -393,6 +517,8 @@ int main(int argc, char* argv[]) {
 
         std::vector<dfm2::CVec2d> vec_pos2;
         vec_pos2.clear();
+        std::vector<double> future_traj;
+        future_traj.clear();
 
         for (int i = 0; i < TRAJ_MAX - TRAJ_SUB; i += TRAJ_SUB)
         {
@@ -419,8 +545,7 @@ int main(int argc, char* argv[]) {
             }
         }
         std::reverse(vec_pos2.begin(), vec_pos2.end());
-
-
+    
         for (int i = 1; i < PRED_MAX; i += 1)
         {
             std::vector start = { predx[i + 0], predy[i + 0] };
@@ -429,6 +554,8 @@ int main(int argc, char* argv[]) {
             //DrawLineV(start, stop, MAROON);
             dfm2::CVec2d tempt(start[0], start[1]);
             vec_pos2.push_back(tempt);
+            future_traj.push_back(start[0] - trajx_prev[0]);
+            future_traj.push_back(start[1] - trajy_prev[0]);
             draw_red_sphere(start);
         }
 
@@ -489,7 +616,18 @@ int main(int argc, char* argv[]) {
 
         dfm2::CVec2d root_pos2(trajx_prev[0], trajy_prev[0]);
         // std::cout <<   "traj size : " << vec_pos2.size() << std::endl;
+                //  BVH test
 
+        int jump_frame = Pose_Match_Best(posematch_date, future_traj, posematch_date.size(), 10);
+        SetPose_BioVisionHierarchy_Rotate(aBone, aChannelRotTransBone, vec_bvh_time_series_data.data() + jump_frame * nch, root_pos2);
+        //SetPose_BioVisionHierarchy_Rotate(aBone, aChannelRotTransBone, vec_bvh_time_series_data.data() + iframe * nch, root_pos2);
+        dfm2::opengl::DrawBone_Octahedron(
+            aBone,
+            5, -1,
+            0.1, 1.0);
+        iframe = (iframe + 1) % nframe;
+        // 
+        DrawFloorShadow(aBone, floor, +0.1);
 
         floor.draw_checkerboard();
 
