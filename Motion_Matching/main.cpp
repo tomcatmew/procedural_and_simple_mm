@@ -21,6 +21,192 @@
 
 namespace dfm2 = delfem2;
 
+void draw_coordinate()
+{
+    ::glLineWidth(5);
+    ::glColor3d(0.1, 0.1, 0.98);
+    ::glBegin(GL_LINE_STRIP);
+    ::glVertex3d(0, 0, 0);
+    ::glVertex3d(0, 0, 20);
+    
+    ::glEnd();
+}
+
+void unrotate_Y_future_traj(std::vector<double>& future_traj, dfm2::CVec2d& face_dir, std::vector<double>& unY_future_traj)
+{
+
+    dfm2::CQuatd q0y;
+    const dfm2::CMat3d R0(
+        face_dir.y, 0, face_dir.x,
+        0, 1, 0,
+        -face_dir.x, 0, face_dir.y);
+    q0y = R0.GetQuaternion();
+    q0y.SetSmallerRotation();
+    dfm2::CQuatd q0yinv = q0y.conjugate();
+    for (unsigned int i = 0; i < future_traj.size() / 2; i++)
+    {
+        double pos[3] = { future_traj[i * 2 + 0],0.0,future_traj[i * 2 + 1] };
+        double new_pos[3];
+        dfm2::QuatVec(new_pos, q0yinv.p, pos);
+        unY_future_traj.push_back(new_pos[0]);
+        unY_future_traj.push_back(new_pos[2]);
+    }
+}
+
+void debug_future_traj_correct(std::vector<double>& traj_database, dfm2::CVec2d& face_dir)
+{
+    ::glLineWidth(4);
+    ::glColor3d(1.0, 1.0, 0);
+    ::glBegin(GL_LINE_STRIP);
+        ::glVertex3d(0.0, 0.1, 0.0);
+        ::glVertex3d(face_dir.x, 0.1, face_dir.y);
+    ::glEnd();
+
+    for (int j = 0; j < 5; j++)
+    {
+        float color[3] = { 0.98f,0.1f,0.1f };
+        ::glColor3fv(color);
+        ::delfem2::opengl::DrawSphereAt(64, 64, 0.7, traj_database[j * 2 + 0], 0, traj_database[j * 2 + 1]);
+    }
+
+}
+
+void debug_traj_correct(std::vector<double>& traj_database, int nframe)
+{
+
+    for (int j = 0; j < 5; j++)
+    {
+        float color[3] = { 0.1f,0.1f,0.1f };
+        ::glColor3fv(color);
+        ::delfem2::opengl::DrawSphereAt(64, 64, 0.7, traj_database[nframe * 10 + j * 2 + 0], 0, traj_database[nframe * 10 + j * 2 + 1]);
+    }
+    
+}
+
+void SeparateYRot(
+    double qy[4],
+    double qxz[4],
+    const double q[4]) {
+    qxz[3] = std::sqrt(q[3] * q[3] + q[1] * q[1]);
+    qy[0] = 0;
+    qy[1] = q[1] / qxz[3];
+    qy[2] = 0;
+    qy[3] = q[3] / qxz[3];
+    //
+    double det = qy[3] * qy[3] + qy[1] * qy[1];
+    double invdet = 1 / det;
+    qxz[0] = (qy[3] * q[0] - qy[1] * q[2]) * invdet;
+    qxz[1] = 0;
+    qxz[2] = (qy[1] * q[0] + qy[3] * q[2]) * invdet;
+    //
+#ifndef NDEBUG
+    assert(fabs(delfem2::Length_Quat(q) - 1.) < 1.0e-5);
+    double qyqxz[4];
+    delfem2::QuatQuat(qyqxz, qy, qxz);
+    assert(fabs(q[0] - qyqxz[0]) < 1.0e-10);
+    assert(fabs(q[1] - qyqxz[1]) < 1.0e-10);
+    assert(fabs(q[2] - qyqxz[2]) < 1.0e-10);
+    assert(fabs(q[3] - qyqxz[3]) < 1.0e-10);
+#endif
+}
+
+double Get_Hip_Magnet(const double* values_pre, const double* values_cur)
+{
+    double x = values_cur[0] - values_pre[0];
+    double y = values_cur[1] - values_pre[1];
+    double z = values_cur[2] - values_pre[2];
+    return sqrt(x * x + y * y + z * z);
+}
+
+void Gene_Hip_Match_Dataset(
+    int nframe,
+    std::vector<double>& hip_match_date,
+    const std::vector<double>& timeseries_data,
+    int channelSize)
+{
+    for (unsigned int i = 0; i < nframe; i++)
+    {
+        if (i == 0)
+        {
+            hip_match_date.push_back(0.0f);
+        }
+        else
+        {
+            double x = timeseries_data[i * channelSize + 0] - timeseries_data[(i - 1) * channelSize + 0];
+            double y = timeseries_data[i * channelSize + 1] - timeseries_data[(i - 1) * channelSize + 1];
+            double z = timeseries_data[i * channelSize + 2] - timeseries_data[(i - 1) * channelSize + 2];
+            double speed_mag = sqrt(x * x + y * y + z * z);
+            hip_match_date.push_back(speed_mag);
+        }
+    }
+}
+
+
+dfm2::CVec2d Catmul_spline(std::vector<dfm2::CVec2d>& p,float t)
+{
+    int p1, p2, p3, p0;
+    p1 = (int)t + 1;
+    p2 = p1 + 1;
+    p3 = p2 + 1;
+    p0 = p1 - 0;
+
+    t = t - (int)t;
+
+    float tt = t * t;
+    float ttt = tt * t;
+
+    float q1 = -ttt + 2.0f * tt - t;
+    float q2 = 3.0f * ttt - 5.0f * tt + 2.0f;
+    float q3 = -3.0f * ttt + 4.0f * tt + t;
+    float q4 = ttt - tt;
+
+    float tx = 0.5f * (p[p0].x * q1 + p[p1].x * q2 + p[p2].x * q3 + p[p3].x * q4);
+    float ty = 0.5f * (p[p0].y * q1 + p[p1].y * q2 + p[p2].y * q3 + p[p3].y * q4);
+
+    dfm2::CVec2d out{ tx,ty };
+    return out;
+}
+
+void draw_spline(std::vector<dfm2::CVec2d>& p)
+{
+    ::glLineWidth(0.5);
+    ::glColor3d(0.1, 0.1, 0.1);
+    ::glBegin(GL_LINE_STRIP);
+    for (auto k : p) 
+    {
+        ::glVertex3d(k.x, 0.1, k.y);
+    }
+    /*
+    for (float t = 0.0; t < (float)p.size() - 3.0f; t += 0.01) {
+        dfm2::CVec2d out = Catmul_spline(p, t);
+        ::glVertex3d(out.x, 0.1, out.y);
+    }
+    */
+    ::glEnd();
+}
+
+
+
+dfm2::CVec2d beizer_curve(dfm2::CVec2d& p1, dfm2::CVec2d& p2, dfm2::CVec2d& p3, double t)
+{
+    dfm2::CVec2d out{ (1 - t) * (1 - t) * p1.x + 2 * (1 - t) * t * p2.x + t * t * p3.x, (1 - t) * (1 - t) * p1.y + 2 * (1 - t) * t * p2.y + t * t * p3.y };
+    return out;
+}
+
+void draw_curve(dfm2::CVec2d& p1, dfm2::CVec2d& p2, dfm2::CVec2d& p3)
+{
+
+        ::glLineWidth(1);
+        ::glColor3d(1.0, 0, 0);
+        ::glBegin(GL_LINE_STRIP);
+        for (double j = 0; j < 1; j += 0.1) {
+            dfm2::CVec2d out = beizer_curve(p1, p2, p3, j);
+            ::glVertex3d(out.x, 0.1, out.y);
+        }
+        ::glEnd();
+
+}
+
 void draw_motion_line(std::vector<double>& motion_line)
 {
     if (motion_line.size() < 18)
@@ -46,7 +232,8 @@ void SetPose_BioVisionHierarchy_Rotate(
     std::vector<dfm2::CRigBone>& bones,
     const std::vector<dfm2::CChannel_BioVisionHierarchy>& channels,
     const double* values,
-    dfm2::CVec2d& traj) {
+    dfm2::CVec2d& traj,
+    dfm2::CVec2d& face_dir) {
     for (auto& bone : bones) {
         bone.quatRelativeRot[0] = 0.0;
         bone.quatRelativeRot[1] = 0.0;
@@ -71,6 +258,46 @@ void SetPose_BioVisionHierarchy_Rotate(
                 bones[ibone].transRelative[iaxis] = val;
             traj_index += 1;
         }
+        else if ((ich == 3) || (ich == 4) || (ich == 5))
+        {
+            if (ich == 3)
+            {
+                dfm2::CMat3d r = dfm2::CMat3d::Identity();
+                for (unsigned int idim = 3; idim < 6; ++idim) {
+                    const double ar = val * M_PI / 180.0;
+                    double a[3] = { 0, 0, 0 };
+                    a[channels[idim].iaxis] = ar;
+                    dfm2::CMat3d dr;
+                    dr.SetRotMatrix_Cartesian(a);
+                    r = r * dr; // this order is important
+                }
+                dfm2::CQuatd q;
+                //r.GetQuat_RotMatrix(q.p);
+                q = r.GetQuaternion();
+                dfm2::CQuatd qy, qxy;
+                SeparateYRot(qy.p, qxy.p, q.p);
+                dfm2::CQuatd qyinv = qy.conjugate();
+                dfm2::CQuatd unroy_q;
+                dfm2::QuatQuat(unroy_q.p, qyinv.p, q.p);
+                double qtmp[4];
+                dfm2::QuatQuat(qtmp,
+                    bones[ibone].quatRelativeRot, unroy_q.p);
+
+
+                dfm2::CQuatd q0y;
+                const dfm2::CMat3d R0(
+                    face_dir.y, 0, face_dir.x,
+                    0, 1, 0,
+                    -face_dir.x, 0, face_dir.y);
+                q0y = R0.GetQuaternion();
+                q0y.SetSmallerRotation();
+                //dfm2::CQuatd q0yinv = q0y.conjugate();
+                double qtmp2[4];
+                dfm2::QuatQuat(qtmp2, q0y.p, qtmp);
+
+                dfm2::Copy_Quat(bones[ibone].quatRelativeRot, qtmp2);
+            }
+        }
         else {
             const double ar = val * M_PI / 180.0;
             double v0[3] = { 0, 0, 0 };
@@ -79,7 +306,30 @@ void SetPose_BioVisionHierarchy_Rotate(
             double qtmp[4];
             dfm2::QuatQuat(qtmp,
                 bones[ibone].quatRelativeRot, dq);
+            /*
+            if (ich == 5)
+            {
+                double final_in[4];
+                double final_in_dir[4];
+                dfm2::CQuatd qy, qxz;
+                SeparateYRot(qy.p, qxz.p, qtmp);
+                dfm2::CQuatd qyinv = qy.conjugate();
+                dfm2::QuatQuat(final_in, qtmp, qyinv.p);
+                dfm2::CQuatd q0y;
+                const dfm2::CMat3d R0(
+                    dirz.y, 0, dirz.x,
+                    0, 1, 0,
+                    -dirz.x, 0, dirz.y);
+                q0y = R0.GetQuaternion();
+                q0y.SetSmallerRotation();
+                dfm2::CQuatd q0yinv = q0y.conjugate();
+                dfm2::QuatQuat(final_in_dir, final_in, q0yinv.p);
+                dfm2::Copy_Quat(bones[ibone].quatRelativeRot, final_in_dir);
+            }
+            */
+
             dfm2::Copy_Quat(bones[ibone].quatRelativeRot, qtmp);
+          
         }
     }
     UpdateBoneRotTrans(bones);
@@ -106,7 +356,7 @@ int Best_match(std::vector<dfm2::CRigBone>& abone,
     for (int ic = 0; ic < icandidate.size(); ic++)
     {
         double tempt_cost = 0.0f;
-        SetPose_BioVisionHierarchy_Rotate(abone, aChannel, vec_bvh_time_series_data.data() + icandidate[ic] * nch, root_pos);
+       // SetPose_BioVisionHierarchy_Rotate(abone, aChannel, vec_bvh_time_series_data.data() + icandidate[ic] * nch, root_pos);
         std::vector<double> pred_feature;
         for (unsigned int i = 0; i < abone.size(); i++)
         {
@@ -213,16 +463,35 @@ void Gene_Pose_Match_Dataset(std::vector<dfm2::CRigBone>& abones,
     }
 }
 
-std::vector<int> Traj_Match_Best(std::vector<double>& traj_match_date, std::vector<double>& desired_future_traj, int database_size, int num_sample)
+
+std::vector<int> Traj_Match_Best_hip(std::vector<double>& traj_match_date,
+    std::vector<double>& desired_future_traj,
+    int database_size,
+    int num_sample,
+    std::vector<double>& hip_match_data,
+    double target_speed_mag,
+    int pre_frame)
 {
-    int candid_size = 300;
-    std::vector<double> cost(candid_size,9999999.0);
+    int low_bind = pre_frame - 120;
+    float loss_fra = 20.f;
+    int candid_size = 5;
+    std::vector<double> cost(candid_size, 9999999.0);
     std::vector<int> target_frame(candid_size, 0);
     int total_frame = database_size / num_sample;
     //std::cout << "total" << total_frame << std::endl;
     for (unsigned int iframe = 0; iframe < total_frame; iframe++)
     {
-        double tempt_cost = 0.0f;
+        double hip_cost = 0.0f;
+        double loss = abs(hip_match_data[iframe] - target_speed_mag);
+        if ((iframe < pre_frame) && (iframe > low_bind))
+        {
+            hip_cost += 999999.0;
+        }
+        else
+        {
+            hip_cost += loss;
+        }
+        double tempt_cost = loss_fra * hip_cost;
         for (unsigned int isample = 0; isample < num_sample; isample += 2)
         {
 
@@ -244,34 +513,118 @@ std::vector<int> Traj_Match_Best(std::vector<double>& traj_match_date, std::vect
 }
 
 
-void Gene_Traj_Match_Dataset(std::vector<double>& traj_match_date,const std::vector<double>* timeseries_date, int channelSize, int sample_frame)
+std::vector<int> Traj_Match_Best(std::vector<double>& traj_match_date,
+    std::vector<double>& desired_future_traj,
+    int database_size,
+    int num_sample,
+    int& c_f,
+    double& ongoing_loss,
+    int cur_frame)
 {
-    int size_date = timeseries_date->size();
+    float threshold = 0.1;
+    float loss_fra = 20.f;
+    int candid_size = 2;
+    std::vector<double> cost(candid_size,9999999.0);
+    std::vector<int> target_frame(candid_size, 0);
+    int total_frame = database_size / num_sample;
+    //std::cout << "total" << total_frame << std::endl;
+    for (unsigned int iframe = 0; iframe < total_frame; iframe++)
+    {
+        double tempt_cost = 0.0;
+        for (unsigned int isample = 0; isample < num_sample; isample += 2)
+        {
+
+            double x_diff = traj_match_date[iframe * num_sample + isample + 0] - desired_future_traj[isample + 0];
+            double z_diff = traj_match_date[iframe * num_sample + isample + 1] - desired_future_traj[isample + 1];
+            tempt_cost += sqrt(x_diff * x_diff + z_diff * z_diff);
+        }
+        for (unsigned int z = 0; z < candid_size; z++)
+        {
+            if (tempt_cost < cost[z])
+            {
+                target_frame[z] = iframe;
+                cost[z] = tempt_cost;
+                break;
+            }
+        }
+    }
+
+    //return target_frame;
+    
+    if ((cost[0] + threshold) > ongoing_loss)
+    {
+        if (c_f == 100)
+        {
+            c_f = 0;
+            ongoing_loss = cost[0];
+            return target_frame;
+        }
+        else
+        {
+            c_f += 1;
+            target_frame[0] = cur_frame + 1;
+            return target_frame;
+        }
+    }
+    else
+    {
+        c_f = 0;
+        ongoing_loss = cost[0];
+        return target_frame;
+    }
+    
+}
+
+
+void Gene_Traj_Match_Dataset(std::vector<double>& traj_match_data,const std::vector<double>& timeseries_date, std::vector<dfm2::CChannel_BioVisionHierarchy>& aChannelRotTransBone, int sample_frame)
+{
+    const unsigned int channelSize = aChannelRotTransBone.size();
+    int size_date = timeseries_date.size();
     int size_timeseries = size_date / channelSize;
     for (unsigned int ich = 0; ich < size_timeseries; ich += 1)
     {
         for (unsigned int j = 1; j < 6; j += 1)
         {
             //const double val = (*timeseries_date)[channelSize * ich + j * sample_frame + 0];
-            double x_root = (*timeseries_date)[channelSize * ich + 0];
-            double z_root = (*timeseries_date)[channelSize * ich + 2];
+            double x_root = timeseries_date[channelSize * ich + 0];
+            double z_root = timeseries_date[channelSize * ich + 2];
             int ix = channelSize * ich + j * sample_frame * channelSize + 0;
             int iz = channelSize * ich + j * sample_frame * channelSize + 2;
+
+            dfm2::CMat3d r = dfm2::CMat3d::Identity();
+            for (unsigned int idim = 0; idim < 3; ++idim) {
+                double a[3] = { 0, 0, 0 };
+                const unsigned int iaxis = aChannelRotTransBone[3 + idim].iaxis;
+                a[iaxis] = timeseries_date[ich * channelSize + 3 + idim] * M_PI / 180.0;
+                dfm2::CMat3d dr;
+                dr.SetRotMatrix_Cartesian(a);
+                r = r * dr; // this order is important
+            }
+            dfm2::CQuatd q;
+            q = r.GetQuaternion();
+            dfm2::CQuatd qy, qxz;
+            SeparateYRot(qy.p, qxz.p, q.p);
+            dfm2::CQuatd qyinv = qy.conjugate();
+
             if (ix >= size_date)
             {
-                traj_match_date.push_back(0.0f);
-                traj_match_date.push_back(0.0f);
+                traj_match_data.push_back(0.0f);
+                traj_match_data.push_back(0.0f);
             }
             else 
             {
-                double x_pos = (*timeseries_date)[ix] - x_root;
-                double y_pos = (*timeseries_date)[iz] - z_root;
-                traj_match_date.push_back(x_pos);
-                traj_match_date.push_back(y_pos);
+                double x_pos = timeseries_date[ix] - x_root;
+                double y_pos = timeseries_date[iz] - z_root;
+                double traj_local[3] = { x_pos , 0.0, y_pos };
+                double un_Y_traj[3];
+                dfm2::QuatVec(un_Y_traj, qyinv.p, traj_local);
+                traj_match_data.push_back(un_Y_traj[0]);
+                traj_match_data.push_back(un_Y_traj[2]);
             }
         }
     }
 }
+
 
 void Read_BioVisionHierarchy_skip(
     std::vector<dfm2::CRigBone>& bones,
@@ -465,7 +818,8 @@ float x_target_v = 0.f;
 float y_target_v = 0.f;
 float keyboard_speed_mag = 25.0f;
 
-
+int normal_frame = 0;
+bool set_y_0 = true;
 int main(int argc, char* argv[]) {
     const int match_gap_frame = 2;
     const int sample_frame = 20;
@@ -485,15 +839,21 @@ int main(int argc, char* argv[]) {
 
 
 
-    std::vector<std::string> vec_path_bvh = {
+    std::vector<std::string> vec_path_bvh = { 
         "/../data/LocomotionFlat01_000.bvh",
+        "/../data/LocomotionFlat01_000_mirror.bvh",
         "/../data/LocomotionFlat02_000.bvh",
+         "/../data/LocomotionFlat02_000_mirror.bvh",
         "/../data/LocomotionFlat03_000.bvh",
+         "/../data/LocomotionFlat03_000_mirror.bvh",
         "/../data/LocomotionFlat04_000.bvh",
+         "/../data/LocomotionFlat04_000_mirror.bvh",
         "/../data/LocomotionFlat05_000.bvh",
+         "/../data/LocomotionFlat05_000_mirror.bvh",
         "/../data/LocomotionFlat06_000.bvh",
+         "/../data/LocomotionFlat06_000_mirror.bvh",
         "/../data/LocomotionFlat07_000.bvh"
-        "/../data/LocomotionFlat08_000.bvh",
+         "/../data/LocomotionFlat07_000_mirror.bvh"
     };
 
     std::vector<dfm2::CRigBone> aBone;
@@ -503,7 +863,8 @@ int main(int argc, char* argv[]) {
     std::vector<double> traj_match_data;
     std::vector<double> pose_match_data;
     std::vector<double> vec_bvh_time_series_data;
-
+    std::vector<double> hip_match_date;
+    
     for (auto& ipath : vec_path_bvh) {
         std::vector<double> series_data_tempt;
         size_t nframe = 0;
@@ -517,16 +878,41 @@ int main(int argc, char* argv[]) {
             header_bvh,
             path_bvh, 50);
 
-        std::vector<double> traj_match_date_tempt;
+        std::vector<double> traj_match_data_tempt;
         std::vector<double> pose_match_data_tempt;
-        Gene_Traj_Match_Dataset(traj_match_date_tempt, &series_data_tempt, aChannelRotTransBone.size(), sample_frame);
-        Gene_Pose_Match_Dataset(aBone, aChannelRotTransBone, nframe, pose_match_data_tempt, series_data_tempt, 96);
+        std::vector<double> hip_match_date_tempt;
+        
+        Gene_Traj_Match_Dataset(traj_match_data_tempt, series_data_tempt, aChannelRotTransBone, sample_frame);
+        //Gene_Pose_Match_Dataset(aBone, aChannelRotTransBone, nframe, pose_match_data_tempt, series_data_tempt, 96);
 
         vec_bvh_time_series_data.insert(vec_bvh_time_series_data.end(), series_data_tempt.begin(), series_data_tempt.end());
-        traj_match_data.insert(traj_match_data.end(), traj_match_date_tempt.begin(), traj_match_date_tempt.end());
-        pose_match_data.insert(pose_match_data.end(), pose_match_data_tempt.begin(), pose_match_data_tempt.end());
-    }
+        Gene_Hip_Match_Dataset(nframe, hip_match_date_tempt, vec_bvh_time_series_data, 96);
+        traj_match_data.insert(traj_match_data.end(), traj_match_data_tempt.begin(), traj_match_data_tempt.end());
+        //pose_match_data.insert(pose_match_data.end(), pose_match_data_tempt.begin(), pose_match_data_tempt.end());
 
+        hip_match_date.insert(hip_match_date.end(), hip_match_date_tempt.begin(), hip_match_date_tempt.end());
+    }
+        /*
+    if (set_y_0 == true)
+    {
+        for (unsigned int i = 0; i < vec_bvh_time_series_data.size() / 96; i++)
+        {
+            double thex = abs(vec_bvh_time_series_data[i * 96 + 3]);
+            double they = vec_bvh_time_series_data[i * 96 + 4];
+            if (thex > 160)
+            {
+                vec_bvh_time_series_data[i * 96 + 4] = 180.0;
+            }
+            else
+            {
+                vec_bvh_time_series_data[i * 96 + 4] = 0.0;
+            }
+            
+            vec_bvh_time_series_data[i * 96 + 0] = 0.0;
+            vec_bvh_time_series_data[i * 96 + 2] = 0.0;
+        }
+    }
+    */
         dfm2::UpdateBoneRotTrans(aBone);
         std::cout << "aBone: " << aBone.size() << std::endl;
         std::cout << "aChannels: " << aBone.size() << std::endl;
@@ -536,7 +922,6 @@ int main(int argc, char* argv[]) {
         std::cout << "pose_match_data: " << pose_match_data.size() / (3 * 38) << std::endl;
         const int total_f = vec_bvh_time_series_data.size() / 96;
 
-        //exit(3);
         // 
         // 
         //while (!fin.eof()) {
@@ -702,6 +1087,13 @@ int main(int argc, char* argv[]) {
     int current_ani_index = 0;
 
     std::vector<double> motion_line;
+
+    int pre_f = 0;
+    int curr_f = 0;
+
+    int c_f = 0;
+    double ongoing_loss = 9999999.0;
+
     while (!glfwWindowShouldClose(viewer_source.window))
     {
         glfwMakeContextCurrent(viewer_source.window);
@@ -746,6 +1138,8 @@ int main(int argc, char* argv[]) {
         bool check_controller = false;
         int present = 0;
         
+        double x_mag = 0.0f;
+        double y_mag = 0.0f;
         glfwSetJoystickCallback(joystick_callback);
         if (glfwJoystickPresent(GLFW_JOYSTICK_1) == GLFW_TRUE)
         {
@@ -779,6 +1173,7 @@ int main(int argc, char* argv[]) {
                     float gamepadclippedmag = gamepad_mag > 1.0f ? 1.0f : gamepad_mag * gamepad_mag;
                     gamepad_x = gamepaddirx * gamepadclippedmag;
                     gamepad_y = gamepaddiry * gamepadclippedmag;
+
                 }
                 else
                 {
@@ -797,7 +1192,7 @@ int main(int argc, char* argv[]) {
                     //f = 0.01f;
                     halflife = damper(halflife, 1.0f, 0.1f);
                     //halflife = 0.7f;
-                    velocity_mag = damper(velocity_mag, 22.0f, 0.1f);
+                    velocity_mag = damper(velocity_mag, 25.0f, 0.1f);
                     traj_xv_goal = gamepad_x * velocity_mag;
                     traj_yv_goal = gamepad_y * velocity_mag;
                 }
@@ -857,6 +1252,7 @@ int main(int argc, char* argv[]) {
             traj_yv_goal = damper(traj_yv_goal, y_target_v, 0.1f);
         }
 
+
         spring_character_update(trajx, trajxv, trajxa, traj_xv_goal, halflife, dt);
         spring_character_update(trajy, trajyv, trajya, traj_yv_goal, halflife, dt);
 
@@ -871,6 +1267,8 @@ int main(int argc, char* argv[]) {
         std::vector<double> future_traj;
         future_traj.clear();
 
+        
+
         for (int i = 0; i < TRAJ_MAX - TRAJ_SUB; i += TRAJ_SUB)
         {
             std::vector start = { trajx_prev[i + 0], trajy_prev[i + 0] };
@@ -878,6 +1276,8 @@ int main(int argc, char* argv[]) {
 
             if (i == 0) {
                 draw_black_sphere(start);
+                dfm2::CVec2d tempt(start[0], start[1]);
+                vec_pos2.push_back(tempt);
                 //std::cout << "root pos : " << start[0] << " - " << start[1] << std::endl;
             }
             else
@@ -918,11 +1318,13 @@ int main(int argc, char* argv[]) {
             viewer_source.view_rotation->Rot_Camera(-static_cast<float>(gamepad2_x), -static_cast<float>(gamepad2_y));
 
 
-        //NN input are here  *** (ﬂÅÕﬂ) ***
+        //gamepad input are here  *** (ﬂÅÕﬂ) ***
         float goal_x = 0.0f;
         float goal_y = 0.0f;
+        dfm2::CVec2d goal_dirZ;
         if (facing_control_mode == false) {
-            dfm2::CVec2d goal_dirZ(predx[1] - trajx_prev[0], predy[1] - trajy_prev[0]);
+            goal_dirZ[0] = predx[1] - trajx_prev[0];
+            goal_dirZ[1] = predy[1] - trajy_prev[0];
             goal_dirZ.normalize();
             face_dirZ.normalize();
             goal_x = damper(face_dirZ.x, goal_dirZ.x, 0.1);
@@ -937,7 +1339,8 @@ int main(int argc, char* argv[]) {
             }
         }
         else {
-            dfm2::CVec2d goal_dirZ(gamepad2_x, gamepad2_y);
+            goal_dirZ[0] = gamepad2_x;
+            goal_dirZ[1] = gamepad2_y;
             goal_dirZ.normalize();
             face_dirZ.normalize();
             goal_x = damper(face_dirZ.x, goal_dirZ.x, 0.05);
@@ -973,8 +1376,23 @@ int main(int argc, char* argv[]) {
         
         //Gene_feature_vector(pre_bone, aBone, current_feature);
         //int jump_frame = Pose_Match_Best(pose_match_data, jump_frame_candidate, current_feature, 38);
-        std::vector<int> jump_frame_candidate = Traj_Match_Best(traj_match_data, future_traj, traj_match_data.size(), 10);
+
+        //double hip_mag = Get_Hip_Magnet(vec_bvh_time_series_data.data() + pre_f * nch, vec_bvh_time_series_data.data() + curr_f * nch);
+
+        //std::vector<int> jump_frame_candidate = Traj_Match_Best_hip(traj_match_data, future_traj, traj_match_data.size(), 10, hip_match_date, hip_mag, curr_f);
+        std::vector<double> unY_traj;
+        unrotate_Y_future_traj(future_traj, goal_dirZ, unY_traj);
+
+        std::vector<int> jump_frame_candidate = Traj_Match_Best(traj_match_data, unY_traj, traj_match_data.size(), 10, c_f, ongoing_loss, curr_f);
+
         int jump_frame = jump_frame_candidate[0];
+        curr_f = jump_frame;
+        
+        //if (jump_frame == curr_f)
+        //    jump_frame += 1;
+        //pre_f = curr_f;
+        //curr_f = jump_frame;
+
         /*
         if (frame_check == 0)
         {
@@ -1004,7 +1422,22 @@ int main(int argc, char* argv[]) {
             }
         }
         */
-        SetPose_BioVisionHierarchy_Rotate(aBone, aChannelRotTransBone, vec_bvh_time_series_data.data() + jump_frame * nch, root_pos2);
+        //trajx_prev[0] = vec_bvh_time_series_data[jump_frame * nch + 0];
+        //trajy_prev[0] = vec_bvh_time_series_data[jump_frame * nch + 2];
+        // 
+        // 
+        // ==========================DEBUG===========================
+        //SetPose_BioVisionHierarchy(aBone, aChannelRotTransBone, vec_bvh_time_series_data.data() + normal_frame * nch);
+        draw_coordinate();
+        //debug_future_traj_correct(unY_traj,goal_dirZ);
+        //debug_traj_correct(traj_match_data, normal_frame);
+        //normal_frame += 1;
+        // =========================DEBUG=========================
+        // 
+        // 
+        SetPose_BioVisionHierarchy_Rotate(aBone, aChannelRotTransBone, vec_bvh_time_series_data.data() + jump_frame * nch, root_pos2,goal_dirZ);
+        draw_spline(vec_pos2);
+        //unY_traj.clear();
         /*
         {
             motion_line.push_back(aBone[0].RootPosition()[0]);
@@ -1062,6 +1495,8 @@ int main(int argc, char* argv[]) {
             ImGui::Separator();
             ImGui::Text("Trajectory smoothness");
             ImGui::SliderFloat("Traj Half-life", &halflife, 0.0f, 0.9f);
+            ImGui::Separator();
+            ImGui::Text("Frame_Life : %i", c_f);
             ImGui::Separator();
             ImGui::Text("Current Direction");
             ImGui::Text("dir x: %f ; dir y: %f", goal_x, goal_y);
