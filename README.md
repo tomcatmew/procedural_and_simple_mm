@@ -1,13 +1,6 @@
-# Motion_Matching
-A simple implementation of Motion Matching
-Currently only involving trajectory match, still working in progress! Wait for it 
+# Simple Procedural Animation and Motion_Matching
+A simple implementation
+## Procedural Animation
 
-## How to run
-Double Click `Demo/Motion_Matching.exe`
+## MM
 
-## Build from source
-1. run `git submodule update --init` 
-2. in folder **Motion_Matching** run `cmake -S . -B build`
-
-## Preview
-![Previewvid](image/thumbnail.gif)
